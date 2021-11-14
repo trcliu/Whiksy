@@ -1,0 +1,331 @@
+---
+title: "Scotch Whiskey Flavor Chart"
+author: Yang & Aaron
+output: flexdashboard::flex_dashboard
+theme: yeti
+runtime: shiny
+---
+Crosstalk
+=====================================  
+Inputs {.sidebar}
+-------------------------------------
+```{r setup, include = FALSE}
+library(flexdashboard)
+library(shiny)
+library(maptools)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(purrr)
+library(leaflet)
+library(plotly)
+library(RCurl)
+library(data.table)
+library(sp)
+library(tidyverse)
+library(raster)
+library(rgdal) 
+library(ggiraphExtra)
+
+library(DT)  # interactive tables
+library(crosstalk)  # inter-widget interactivity
+
+```
+```{r global,include = FALSE}
+# load data as character
+whisky  <- read.csv("Whiskies.csv") 
+lat.long.df <- data.frame(whisky$Latitude, whisky$Longitude) 
+
+coordinates(lat.long.df) <-  ~whisky.Latitude + whisky.Longitude
+
+proj4string(lat.long.df) <- CRS("+init=epsg:27700")
+dist.location <- spTransform(lat.long.df, CRS("+init=epsg:4326"))
+
+whisky.map <- 
+  data.frame(Distillery = whisky$Distillery,
+             longitude = dist.location$whisky.Latitude,
+             latitude = dist.location$whisky.Longitude)
+
+flavor <- c("Sweetness", "Honey", "Fruity",
+              "Winey", "Spicy", "Nutty", "Malty",
+              "Floral", "Tobacco", "Medicinal",
+              "Smoky", "Body")
+
+whisky <- whisky[, c("Distillery", flavor)]
+whisky <- merge(whisky, whisky.map, by=c("Distillery")) 
+##############################
+data <- whisky[,flavor]
+rownames(data) <- paste0(whisky$Distillery)
+pcaWhisky <- princomp(data, cor = TRUE)
+# scree plot
+#plot(pcaWhisky, type = "l")
+# cluster Whisky
+WhiskyHC <- hclust(dist(pcaWhisky$scores), method = "ward.D2")
+
+# cut the dendrogram into 3 clusters
+WhiskyClusters <- cutree(WhiskyHC, k = 3)
+# add cluster to data frame of scores
+WhiskyDf <- data.frame(pcaWhisky$scores, "cluster" = factor(WhiskyClusters))
+WhiskyDf <- transform(WhiskyDf, cluster_name = paste("Cluster",WhiskyClusters))
+
+sd <- SharedData$new(whisky)
+
+```
+```{r filters}
+# shiny inputs defined here
+bscols(
+  filter_slider(
+    id = "Sweetness",
+    label = "Sweetness",
+    sharedData = sd,
+    column = ~Sweetness,
+    step = 1,
+    round = TRUE,
+    sep = "",
+    width = 100
+  ),
+  filter_slider(
+    id = "Honey",
+    label = "Honey",
+    sharedData = sd,
+    column = ~Honey,
+    step = 1,
+    round = TRUE,
+    sep = "",
+     width = 100
+  )
+)
+bscols(
+    filter_slider(
+    id = "Winey",
+    label = "Winey",
+    sharedData = sd,
+    column = ~Winey,
+    step = 1,
+    round = TRUE,
+    sep = "",
+      width = 100
+  ),
+      filter_slider(
+    id = "Nutty",
+    label = "Nutty",
+    sharedData = sd,
+    column = ~Nutty,
+    step = 1,
+    round = TRUE,
+    sep = "",
+    width = 100
+  )
+)
+bscols(
+     filter_slider(
+    id = "Malty",
+    label = "Malty",
+    sharedData = sd,
+    column = ~Malty,
+    step = 1,
+    round = TRUE,
+    sep = "",
+     width = 100
+  ),
+    filter_slider(
+    id = "Floral",
+    label = "Floral",
+    sharedData = sd,
+    column = ~Honey,
+    step = 1,
+    round = TRUE,
+    sep = "",
+     width = 100
+  )
+)
+bscols(
+    filter_slider(
+    id = "Tobacco",
+    label = "Tobacco",
+    sharedData = sd,
+    column = ~Tobacco,
+    step = 1,
+    round = TRUE,
+    sep = "",
+    width = 100
+  ),
+          filter_slider(
+    id = "Medicinal",
+    label = "Medicinal",
+    sharedData = sd,
+    column = ~Medicinal,
+    step = 1,
+    round = TRUE,
+    sep = "",
+     width = 100
+  )
+  )
+bscols(
+     filter_slider(
+    id = "Smoky",
+    label = "Smoky",
+    sharedData = sd,
+    column = ~Smoky,
+    step = 1,
+    round = TRUE,
+    sep = "",
+    width = 100
+  ),
+         filter_slider(
+    id = "Body",
+    label = "Body",
+    sharedData = sd,
+    column = ~Body,
+    step = 1,
+    round = TRUE,
+    sep = "",
+    width = 100
+  )
+)    
+# cor = TRUE indicates that PCA is performed on 
+# standardized data (mean = 0, variance = 1)
+
+sd %>% 
+  DT::datatable(
+    filter = "top",  # allows filtering on each column
+    extensions = c(
+      "Buttons",  # add download buttons, etc
+      "Scroller"  # for scrolling down the rows rather than pagination
+    ),
+    rownames = FALSE,  # remove rownames
+    style = "bootstrap",
+    class = "compact",
+    width = "100%",
+    options = list(
+      dom = "Blrtip",  # specify content (search box, etc)
+      deferRender = TRUE,
+      scrollY = 300,
+      scroller = TRUE,
+      columnDefs = list(
+        list(
+          visible = FALSE,
+          targets = c(1, 3)
+        )
+      ),
+       buttons = list(
+        I("colvis")
+      )
+    )
+  )
+
+
+```
+Column 
+-------------------------------------
+
+```{r map}
+
+
+library(d3scatter)
+
+whisky.pca <-  merge(WhiskyDf, whisky, by.x = "row.names", by.y = "Distillery")
+
+logos <- awesomeIconList(
+  "Cluster 1" = makeAwesomeIcon(
+    icon = "glass",
+    markerColor = "blue",
+    library = "fa"
+  ),
+  "Cluster 2" = makeAwesomeIcon(
+    icon = "glass",
+    markerColor = "orange",
+    library = "fa"
+  ),
+  "Cluster 3" = makeAwesomeIcon(
+    icon = "glass",
+    markerColor = "green",
+    library = "fa"
+  )
+)
+      
+bscols(
+ 
+  
+ m <-  leaflet(sd,width = "100%", height = 800)%>%  addTiles()%>%
+  addAwesomeMarkers(
+      icon = logos[whisky.pca$cluster_name],
+      label = whisky.pca$Row.names)
+  ,
+d3scatter(sd,x_label = "PC 1 -Intensity ", y_label = "PC 2 -Complexity ", ~whisky.pca$Comp.1, ~whisky.pca$Comp.2, width = "100%", height = 800,color = whisky.pca$cluster_name)
+)
+
+```
+Shiny RenderPlot
+===================================== 
+
+Inputs {.sidebar} 
+-------------------------------------
+```{r}
+selectInput("Dist", label = "Choose the Distillery",
+            choices = whisky.map$Distillery,multiple = TRUE, selected = "Aberfeldy")
+```
+
+    
+Column {data-width=600}
+-------------------------------------
+
+### Radar Plot
+```{r}
+
+
+# select a random sample of whiskeys
+whisky1 <- whisky[, c("Distillery", flavor)]
+i <- sample(seq_len(nrow(whisky1)), 6)
+renderPlot({
+ggRadar(whisky1[which(whisky$Distillery %in% input$Dist),], aes(group = Distillery), 
+     rescale = FALSE, legend.position = "none",
+     size = 1, interactive = FALSE, use.label = TRUE) +
+    facet_wrap(~Distillery) +
+     scale_y_discrete(breaks = NULL) + # don't show ticks 
+    theme(axis.text.x = element_text(size = 10)) + # larger label sizes
+    # adjust colors of radar charts to uniform colors
+    scale_fill_manual(values = rep("#e28743", nrow(whisky[which(whisky$Distillery %in% input$Dist),]))) +
+    scale_color_manual(values = rep("#e28743", nrow(whisky[which(whisky$Distillery %in% input$Dist),]))) +
+    ggtitle("Whiskey Tasting Characteristics")
+
+})
+
+```
+
+Column {data-width=400}
+-------------------------------------
+### PCA Plot  Plotly
+
+
+```{r}
+getColor <- function(whisky) {
+  sapply(whisky$cluster_name, function(Rownames) {
+  if(Rownames == "Cluster 1") {
+    "blue"
+  } else if(Rownames == "Cluster 2") {
+    "orange"
+  } else {
+    "green"
+  } })
+}
+renderPlotly({
+whisky2 <- whisky.pca[which((whisky.pca$Row.names) %in% input$Dist),]
+plot_ly(whisky2, x =whisky2$Comp.1 , y = whisky2$Comp.2, text = whisky2$Row.names, mode = "markers",  marker = list(color=getColor(whisky2),size = 11))%>%layout(xaxis = list(title = "PC 1 -Intensity "),
+       yaxis = list(title = "PC 2 -Complexity "))
+})
+```
+
+-------------------------------------
+### Distillery Location 
+
+```{r}
+
+renderLeaflet({
+whisky3 <- whisky.pca[which((whisky.pca$Row.names) %in% input$Dist),]
+leaflet(whisky3) %>% 
+  addTiles() %>% addAwesomeMarkers(
+      icon = logos[whisky3$cluster_name],
+      label = whisky3$Row.names)
+})
+```
